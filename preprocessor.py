@@ -1,16 +1,17 @@
 import os
 import cv2
 import numpy as np
-from PIL import Image
-import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Preprocessing Functions
 def deskew(image):
-    # Detect skew angle using moments and deskew image
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     coords = np.column_stack(np.where(gray > 0))
-    angle = cv2.minAreaRect(coords)[-1]
     
+    if coords.shape[0] == 0:
+        return image
+    
+    angle = cv2.minAreaRect(coords)[-1]
     if angle < -45:
         angle = -(90 + angle)
     else:
@@ -23,45 +24,59 @@ def deskew(image):
     
     return rotated
 
-def preprocess_image(image_path):
+def preprocess_image(image_path, output_path):
     img = cv2.imread(image_path)
+    
+    if img is None:
+        print(f"Error reading image: {image_path}")
+        return False
     
     # Step 1: Convert to grayscale
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Step 2: Denoise image using Non-Local Means Denoising
+    # Step 2: Denoise
     denoised = cv2.fastNlMeansDenoising(gray, None, 30, 7, 21)
     
-    # Step 3: Binarize image using Otsu's thresholding
+    # Step 3: Thresholding
     _, thresh = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # Step 4: Deskew the image if needed
-    deskewed = deskew(thresh)
+    # Step 4: Deskew
+    deskewed = deskew(cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR))
     
-    return deskewed
+    # Save preprocessed image
+    cv2.imwrite(output_path, deskewed)
+    
+    return True
 
-def process_images(input_folder, output_folder):
-    # Create output folder if not exists
+def process_images_multithreaded(input_folder, output_folder, max_workers=8):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
     
-    # Get all image files from the input folder
     image_files = [f for f in os.listdir(input_folder) if f.lower().endswith(('png', 'jpg', 'jpeg', 'bmp', 'tiff'))]
     
-    for image_file in image_files:
-        image_path = os.path.join(input_folder, image_file)
-        
-        # Preprocess image
-        preprocessed_img = preprocess_image(image_path)
-        
-        # Save the processed image
-        output_image_path = os.path.join(output_folder, image_file)
-        cv2.imwrite(output_image_path, preprocessed_img)
-        print(f"Processed and saved: {image_file}")
+    print(f"Found {len(image_files)} images. Starting multithreaded preprocessing...")
 
-# Define input and output directories
-input_directory = 'path/to/your/images'  # Replace with your folder of lab report images
-output_directory = 'path/to/save/processed_images'  # Replace with the folder to save processed images
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = []
+        
+        for image_file in image_files:
+            input_path = os.path.join(input_folder, image_file)
+            output_path = os.path.join(output_folder, image_file)
+            futures.append(executor.submit(preprocess_image, input_path, output_path))
+        
+        for idx, future in enumerate(as_completed(futures), start=1):
+            try:
+                success = future.result()
+                if success:
+                    print(f"[{idx}/{len(image_files)}] Successfully processed.")
+                else:
+                    print(f"[{idx}/{len(image_files)}] Failed to process.")
+            except Exception as e:
+                print(f"[{idx}/{len(image_files)}] Exception: {e}")
 
-# Process all images
-process_images(input_directory, output_directory)
+# --- Your Actual Paths ---
+input_directory = r'C:\Users\prath\Downloads\Dataset\lbmaske'
+output_directory = r'C:\Users\prath\OneDrive\Desktop\Bajaj\Preprocessed Images'
+
+# Process Images
+process_images_multithreaded(input_directory, output_directory, max_workers=8)

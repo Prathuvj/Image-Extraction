@@ -27,20 +27,25 @@ def extract_tests(text):
             continue
 
         try:
-            # Normalize line for common OCR misreads
+            # Skip metadata and irrelevant lines
+            blacklist_keywords = ["PIN", "KANNADA", "PM", "NO", "@", "==="]
+            if any(keyword in line.upper() for keyword in blacklist_keywords):
+                continue
+
+            # Normalize line for common OCR artifacts
             line = line.replace('—', '-').replace('–', '-').replace('to', '-').replace(':', '-')
             line = re.sub(r'\s{2,}', ' ', line)
 
-            # Match reference range (e.g., 12.0-15.0 or 4 - 5.5)
-            ref_range_match = re.search(r'(\d+\.?\d*)\s*[-–to]+\s*(\d+\.?\d*)', line)
-            if ref_range_match:
-                ref_low = float(ref_range_match.group(1))
-                ref_high = float(ref_range_match.group(2))
+            # Match reference range
+            ref_match = re.search(r'(\d+\.?\d*)\s*[-–to]+\s*(\d+\.?\d*)', line)
+            if ref_match:
+                ref_low = float(ref_match.group(1))
+                ref_high = float(ref_match.group(2))
                 bio_reference_range = f"{ref_low}-{ref_high}"
             else:
                 bio_reference_range = None
 
-            # Match test value before or after range
+            # Match numbers in line
             all_numbers = re.findall(r'(?<!\d)(\d+\.?\d*)(?!\d)', line)
             test_value = None
             if bio_reference_range and len(all_numbers) >= 1:
@@ -53,17 +58,21 @@ def extract_tests(text):
             elif len(all_numbers) == 1:
                 test_value = all_numbers[0]
 
-            # Test name: remove value and range to get name
+            # Clean test name
             name_candidate = re.sub(r'\d+\.?\d*\s*[-–to:]\s*\d+\.?\d*', '', line)
             if test_value:
                 name_candidate = name_candidate.replace(test_value, '')
             test_name = name_candidate.strip()
 
+            # Skip if test name is empty or just noise
+            if len(test_name) < 2 or not re.search(r'[a-zA-Z]', test_name):
+                continue
+
             # Detect unit if available
-            unit_match = re.search(r'(g/dL|mg/dL|mmol/L|μmol/L|%|IU/L|pg/mL)', line)
+            unit_match = re.search(r'(g/dL|mg/dL|mmol/L|μmol/L|%|IU/L|pg/mL|fl)', line)
             unit = unit_match.group(1) if unit_match else ''
 
-            # Determine if test is out of range (only if both values are numeric)
+            # Determine if test is out of range
             out_of_range = False
             if bio_reference_range and test_value:
                 try:
@@ -72,6 +81,7 @@ def extract_tests(text):
                 except:
                     out_of_range = False
 
+            # Append result only if test_name and test_value are valid
             if test_value and test_name:
                 extracted_data.append({
                     "test_name": test_name,

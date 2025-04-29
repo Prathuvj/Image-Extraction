@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Lab Test Extractor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 40px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    #result {
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Upload Lab Report</h2>
+  <form id="uploadForm">
+    <input type="file" id="fileInput" name="file" accept="image/*" required>
+    <button type="submit">Upload</button>
+  </form>
+
+  <div id="result"></div>
+
+  <script>
+    document.getElementById("uploadForm").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      const fileInput = document.getElementById("fileInput");
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+
+      const resultDiv = document.getElementById("result");
+      resultDiv.innerHTML = "<p>Processing...</p>";
+
+      try {
+        const response = await fetch("/get-lab-tests", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await response.json();
+        if (data.is_success) {
+          // Filter tests to only include those with a reference range
+          const validTests = data.data.filter(test => test.bio_reference_range);
+
+          if (validTests.length === 0) {
+            resultDiv.innerHTML = "<p style='color: orange;'>No valid lab tests with reference ranges found.</p>";
+            return;
+          }
+
+          const rows = validTests.map(test =>
+            `<tr>
+              <td>${test.test_name}</td>
+              <td>${test.test_value} ${test.test_unit}</td>
+              <td>${test.bio_reference_range}</td>
+              <td>${test.lab_test_out_of_range ? "Yes" : "No"}</td>
+            </tr>`
+          ).join("");
+
+          const tableHTML = `
+            <h3>Extracted Lab Results</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Test Name</th>
+                  <th>Test Value</th>
+                  <th>Reference Range</th>
+                  <th>Out of Range?</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          `;
+          resultDiv.innerHTML = tableHTML;
+
+          // Trigger JSON download
+          const blob = new Blob([JSON.stringify(validTests, null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "filtered_lab_test_results.json";
+          a.textContent = "Download Filtered Results as JSON";
+          a.style.display = "block";
+          a.style.marginTop = "20px";
+          resultDiv.appendChild(a);
+        } else {
+          resultDiv.innerHTML = `<p style="color:red;">Error: ${data.message}</p>`;
+        }
+      } catch (err) {
+        resultDiv.innerHTML = `<p style="color:red;">Unexpected error: ${err.message}</p>`;
+      }
+    });
+  </script>
+</body>
+</html>
